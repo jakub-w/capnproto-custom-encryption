@@ -19,24 +19,9 @@ using tl::unexpected;
 //    errors. They could be caught and turned into std::error_code. Or the
 //    resulting error code could be a result of some inner workings of this
 //    channel, unrelated to the internal_stream_.
-// 2. It would be probably wise to make the class based on that one stateful,
-//    contrary to this implementation.
-// 3. If internal_stream_.read() or internal_stream_.write() return void
+// 2. If internal_stream_.read() or internal_stream_.write() return void
 //    the code won't compile because we're assigning their return value to an
 //    auto-typed variable.
-
-// These could be used as an alternate way of determining the result of
-// write() and read() methods. They'd be used in tandem with internalRead()
-// and internalWrite().
-// #define WRITE_RESULT(T)                                          \
-//   expected<std::invoke_result_t<decltype(&T::internalWrite),    \
-//                                 T, void*, size_t>,              \
-//            std::error_code>
-
-// #define READ_RESULT(T)                                         \
-//   expected<std::invoke_result_t<decltype(&T::internalRead),    \
-//                                 T, void*, size_t>,             \
-//            std::error_code>
 
 #define INS_CHAN_IO_RESULT expected<decltype(result), std::error_code>
 
@@ -49,13 +34,6 @@ private:
     DISCONNECTED,
     CONNECTED
   } state = State::DISCONNECTED;
-
-  // inline auto internalRead(void* buffer, size_t size) {
-  //   return internal_stream_.read(buffer, size);
-  // }
-  // inline auto internalWrite(const void* buffer, size_t size) {
-  //   return internal_stream_.write(buffer, size);
-  // }
 
  public:
   using writeResult =

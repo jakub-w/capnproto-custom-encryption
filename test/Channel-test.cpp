@@ -173,5 +173,3 @@ TYPED_TEST(ChannelTest, close) {
 //       is null after all.
 //       The question is if they should assert or return error codes? Maybe
 //       both? We don't like hard crashes.
-// FIXME: PubkeyChannel segfaults on write() test. Probably because it
-//        writes more than the given size.

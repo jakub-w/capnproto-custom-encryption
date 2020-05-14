@@ -229,6 +229,3 @@ class PubkeyChannel {
         state_);
   }
 };
-
-// TODO: This is unrelated to this file, but for it to work I need to
-//       implement a ConnectionReceiver so that the handshake is possible.
