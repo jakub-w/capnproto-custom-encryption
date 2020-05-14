@@ -1,0 +1,7 @@
+The truth is this code is not being written just for usage with ~Cap'n'Proto~. It's designed to be modular and usable with anything, really.
+
+The main part of this (soon to be) library is just about implementing secure channels based on ~libsodium~ (although it's possible to create new channel types using any crypto library) while abstracting the backend for sending and receiving raw data from endpoint to endpoint.
+
+The rest is glue code to work with ~Cap'n'Proto~'s RPC system.
+
+THIS IS VERY MUCH WORK IN PROGRESS. I added it to github to have an off-site backup.
