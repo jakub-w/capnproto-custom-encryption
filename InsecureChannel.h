@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <system_error>
 #include <type_traits>
 #include <thread>
@@ -73,6 +74,12 @@ private:
   }
 
   inline writeResult write(const void* buffer, size_t size) {
+    assert(nullptr != buffer);
+#ifdef NDEBUG
+    if (nullptr != buffer) {
+      return unexpected{std::make_error_code(std::errc::bad_address)};
+    }
+#endif
     if (State::DISCONNECTED == state) {
       return unexpected{std::make_error_code(std::errc::not_connected)};
     }
@@ -92,6 +99,12 @@ private:
   }
 
   inline readResult read(void* buffer, size_t size) {
+    assert(nullptr != buffer);
+#ifdef NDEBUG
+    if (nullptr != buffer) {
+      return unexpected{std::make_error_code(std::errc::bad_address)};
+    }
+#endif
     if (State::DISCONNECTED == state) {
       return unexpected{std::make_error_code(std::errc::not_connected)};
     }

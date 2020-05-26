@@ -117,9 +117,12 @@ class PubkeyChannel {
   }
 
   WriteResult write(const void* buffer, size_t size) {
-    if (nullptr == buffer) {
+    assert(nullptr != buffer);
+#ifdef NDEBUG
+    if (nullptr != buffer) {
       return unexpected{std::make_error_code(std::errc::bad_address)};
     }
+#endif
 
     return std::visit(
         overload{
@@ -160,9 +163,12 @@ class PubkeyChannel {
   }
 
   ReadResult read(void* buffer, size_t size) {
-    if (nullptr == buffer) {
+    assert(nullptr != buffer);
+#ifdef NDEBUG
+    if (nullptr != buffer) {
       return unexpected{std::make_error_code(std::errc::bad_address)};
     }
+#endif
 
     return std::visit(
         overload{
