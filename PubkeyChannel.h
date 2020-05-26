@@ -18,12 +18,10 @@ class PubkeyChannel {
   //     expected<std::invoke_result_t<decltype(&IoStream::write),
   //                                   IoStream, void*, size_t>,
   //              std::error_code>;
-  using WriteResult = expected<size_t, std::error_code>;
   // using ReadResult =
   //     expected<std::invoke_result_t<decltype(&IoStream::read),
   //                                   IoStream, void*, size_t>,
   //              std::error_code>;
-  using ReadResult = expected<size_t, std::error_code>;
 
   struct disconnected {};
   struct connecting {};
@@ -209,9 +207,15 @@ class PubkeyChannel {
     return std::visit(
         overload{
           [](disconnected&){ return not_connected_ec(); },
-          [](connecting&){ return not_connected_ec(); },
+          [](connecting&){
+            // FIXME: This should stop the connection instead!
+            return not_connected_ec();
+          },
           [this](connected&){
+            state_ = disconnecting{};
+
             // TODO: close connection
+
             internal_stream_.close();
             state_ = disconnected{};
             return std::error_code{};

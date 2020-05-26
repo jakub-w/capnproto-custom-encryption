@@ -8,6 +8,7 @@
 
 #include "../InsecureChannel.h"
 #include "../PubkeyChannel.h"
+#include "../JpakeChannel.h"
 
 class MockIoStream {
   MOCK_METHOD(int, write, (const void* buffer, size_t size));
@@ -407,3 +408,8 @@ TYPED_TEST(ChannelTest, close) {
 //       received message.
 //       The internal stream could be required to return size_t or
 //       pair<auto, size_t>.
+// IMPORTANT
+//       They probably should return expected<size_t, error_code> because
+//       the stream could return an error.
+//       Not handling network errors could lead to a hanging, broken
+//       connection. Probable security issue? DOS perhaps.
