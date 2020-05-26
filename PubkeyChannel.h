@@ -16,7 +16,8 @@ template<class... Ts> overload(Ts...) -> overload<Ts...>;
 }
 
 // This channel is vulnerable to MiTM attacks and is not very secure.
-// It's more of a reference implementation.
+// It's more of a reference implementation and shouldn't be used in the
+// real world.
 template<class IoStream>
 class PubkeyChannel {
   using WriteResult =

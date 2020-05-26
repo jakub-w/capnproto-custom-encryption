@@ -17,6 +17,12 @@
 /// Channel should stop any throw from its internal IoStream and return
 /// error_code instead.
 ///
+/// Channel should \verbatim assert(buffer != nullptr) \endverbatim as a first
+/// instruction in \e write() and \e read() function.
+/// In the non-debug (\e NDEBUG) builds it should check if the buffer pointer
+/// is null and return an error instead: \e std::errc::bad_address
+/// (\e EFAULT) system error code.
+///
 /// It's crucial to call \ref connect() or \ref accept() after wrapping the
 /// \e AsyncIoStream. This will do a handshake that is needed for encryption.
 /// The server should call \ref accept(), while the client should call

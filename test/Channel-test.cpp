@@ -382,10 +382,6 @@ TYPED_TEST(ChannelTest, close) {
   //       channel.
 }
 
-// TODO: Implement BufferIoStream that will write and read from a simple
-//       buffer. This will be sufficient to test server-client stuff.
-// TODO: Implement server-client tests because anything else than
-//       InsecureStream will fail every test.
 // TODO: A Channel who's internal stream isn't connected should return error
 //       errors on connect(), read() and write().
 // TODO: If connect() or accept() returns errc::resource_unavailable_try_again
@@ -405,3 +401,9 @@ TYPED_TEST(ChannelTest, close) {
 //       is null after all.
 //       The question is if they should assert or return error codes? Maybe
 //       both? We don't like hard crashes.
+
+// TODO: Make IoStream.write() return size_t of the bytes written, likewise
+//       for read(). For encryption it's crucial to know the size of the
+//       received message.
+//       The internal stream could be required to return size_t or
+//       pair<auto, size_t>.

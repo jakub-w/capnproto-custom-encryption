@@ -23,8 +23,8 @@ using tl::unexpected;
 // 2. If internal_stream_.read() or internal_stream_.write() return void
 //    the code won't compile because we're assigning their return value to an
 //    auto-typed variable.
-
-#define INS_CHAN_IO_RESULT expected<decltype(result), std::error_code>
+// 3. IoStream::read() and IoStream::write() must return number of processed
+//    bytes as a size_t value.
 
 template<class IoStream>
 class InsecureChannel {
@@ -84,8 +84,8 @@ private:
       return unexpected{std::make_error_code(std::errc::not_connected)};
     }
 
-    std::cout <<  std::this_thread::get_id() << ": "
-              << "writing " << size << " bytes\n";
+    // std::cout <<  std::this_thread::get_id() << ": "
+              // << "writing " << size << " bytes\n";
     try {
       auto result = internal_stream_.write(buffer, size);
       return writeResult{std::move(result)};
@@ -108,8 +108,8 @@ private:
     if (State::DISCONNECTED == state) {
       return unexpected{std::make_error_code(std::errc::not_connected)};
     }
-    std::cout << std::this_thread::get_id() << ": "
-              << "reading " << size << " bytes\n";
+    // std::cout << std::this_thread::get_id() << ": "
+              // << "reading " << size << " bytes\n";
     try {
       auto result = internal_stream_.read(buffer, size);
       return expected<decltype(result), std::error_code>{std::move(result)};
@@ -136,8 +136,8 @@ private:
       return std::make_error_code(std::errc::not_connected);
     }
 
-    std::cout <<  std::this_thread::get_id() << ": "
-              << "Closing the connection\n";
+    // std::cout <<  std::this_thread::get_id() << ": "
+              // << "Closing the connection\n";
     internal_stream_.close();
     return std::error_code{};
   }
