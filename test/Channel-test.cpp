@@ -1,5 +1,6 @@
 #include <gmock/gmock.h>
 
+#include <thread>
 #include <kj/async-io.h>
 
 #include "../InsecureChannel.h"
@@ -10,6 +11,101 @@ class MockIoStream {
   MOCK_METHOD(int, read, (void* buffer, size_t size));
   MOCK_METHOD(int, close, ());
 };
+
+class PipeIoStream {
+  static const auto PREAD = 0;
+  static const auto PWRITE = 1;
+ public:
+  PipeIoStream() {
+    int result = pipe(local);
+    if (0 != result) {
+      throw std::system_error(result, std::system_category());
+    }
+    read_stream = fdopen(local[PREAD], "r");
+  }
+
+  PipeIoStream(int fd_write) : PipeIoStream() {
+    InstallRemote(fd_write);
+  }
+
+  ~PipeIoStream() {
+    close();
+  }
+
+  void InstallRemote(int fd_write) {
+    write_stream = fdopen(fd_write, "w");
+  }
+
+  int GetWriteFd() {
+    return local[PWRITE];
+  }
+
+  int GetReadFd() {
+    return local[PREAD];
+  }
+
+  size_t write(const void* buffer, size_t size) {
+    if (nullptr == buffer) {
+      throw std::system_error(EFAULT, std::system_category());
+    }
+    if (not write_stream) {
+      throw std::system_error(ENOTCONN, std::system_category());
+    }
+
+    size_t result = fwrite(buffer, sizeof(char), size, write_stream);
+    fflush(write_stream);
+    return result;
+  }
+
+  size_t read(void* buffer, size_t size) {
+    if (nullptr == buffer) {
+      throw std::system_error(EFAULT, std::system_category());
+    }
+
+    return fread(buffer, sizeof(char), size, read_stream);
+  }
+
+  int close() {
+    if (read_stream) {
+      fclose(read_stream);
+      read_stream = nullptr;
+    }
+
+    if (write_stream) {
+      fclose(write_stream);
+      write_stream = nullptr;
+    }
+
+    return 0;
+  }
+
+ private:
+  int local[2];
+  FILE* write_stream = nullptr;
+  FILE* read_stream = nullptr;
+};
+
+TEST(PipeIoStream, Test) {
+  PipeIoStream server;
+  PipeIoStream client(server.GetWriteFd());
+  server.InstallRemote(client.GetWriteFd());
+
+  std::thread server_thread{
+    [&server]{
+      char buffer[10];
+      server.read(buffer, 4);
+      EXPECT_STREQ(buffer, "foo");
+    }};
+
+  std::thread client_thread{
+    [&client]{
+      const char buffer[10] = "foo";
+      client.write(buffer, 4);
+    }};
+
+  if (server_thread.joinable()) server_thread.join();
+  if (client_thread.joinable()) client_thread.join();
+}
 
 class FakeIoStream {
  public:
