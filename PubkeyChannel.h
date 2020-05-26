@@ -7,13 +7,7 @@
 #include "tl/expected.hpp"
 #include "sodium.h"
 
-namespace {
-using tl::expected;
-using tl::unexpected;
-
-template<class... Ts> struct overload : Ts... { using Ts::operator()...; };
-template<class... Ts> overload(Ts...) -> overload<Ts...>;
-}
+#include "EncryptionCommon.h"
 
 // This channel is vulnerable to MiTM attacks and is not very secure.
 // It's more of a reference implementation and shouldn't be used in the
@@ -45,26 +39,6 @@ class PubkeyChannel {
   // PRIVATE FIELDS
   State state_ = disconnected{};
   IoStream& internal_stream_;
-
-  // PRIVATE METHODS
-  static inline std::error_code not_connected_ec() {
-    return std::make_error_code(std::errc::not_connected);
-  }
-  static inline std::error_code already_connected_ec() {
-    return std::make_error_code(std::errc::already_connected);
-  }
-  static inline std::error_code connection_pending_ec() {
-    return std::make_error_code(std::errc::connection_already_in_progress);
-  }
-  static inline std::error_code try_again_ec() {
-    return std::make_error_code(std::errc::resource_unavailable_try_again);
-  }
-  static inline std::error_code bad_message_ec() {
-    return std::make_error_code(std::errc::bad_message);
-  }
-  static inline std::error_code protocol_error_ec() {
-    return std::make_error_code(std::errc::protocol_error);
-  }
 
  public:
   PubkeyChannel(IoStream& stream) : internal_stream_{stream} {}
