@@ -14,14 +14,16 @@
 // real world.
 template<class IoStream>
 class PubkeyChannel {
-  using WriteResult =
-      expected<std::invoke_result_t<decltype(&IoStream::write),
-                                    IoStream, void*, size_t>,
-               std::error_code>;
-  using ReadResult =
-      expected<std::invoke_result_t<decltype(&IoStream::read),
-                                    IoStream, void*, size_t>,
-               std::error_code>;
+  // using WriteResult =
+  //     expected<std::invoke_result_t<decltype(&IoStream::write),
+  //                                   IoStream, void*, size_t>,
+  //              std::error_code>;
+  using WriteResult = expected<size_t, std::error_code>;
+  // using ReadResult =
+  //     expected<std::invoke_result_t<decltype(&IoStream::read),
+  //                                   IoStream, void*, size_t>,
+  //              std::error_code>;
+  using ReadResult = expected<size_t, std::error_code>;
 
   struct disconnected {};
   struct connecting {};
@@ -127,8 +129,14 @@ class PubkeyChannel {
               return WriteResult{unexpected{protocol_error_ec()}};
             }
 
-            auto result = internal_stream_.write(send_buf, send_buf_size);
-            return WriteResult{std::move(result)};
+            size_t sent = 0;
+            while (sent < send_buf_size) {
+              sent += internal_stream_.write(send_buf + sent,
+                                             send_buf_size - sent);
+            }
+            assert(sent == send_buf_size);
+
+            return WriteResult{size};
           },
           [](disconnecting&){
             return WriteResult{unexpected{not_connected_ec()}};
@@ -159,13 +167,15 @@ class PubkeyChannel {
                                            crypto_box_MACBYTES;
             unsigned char recv_buffer[recv_buffer_len];
 
-            // FIXME: I NEED to check the size of the received message.
-            //        This must return it.
-            auto result = internal_stream_.read(recv_buffer, recv_buffer_len);
+            // FIXME: loop until the buffer is filled?
+            // Received message size, without encryption headers
+            const size_t result =
+                internal_stream_.read(recv_buffer, recv_buffer_len)
+                - crypto_box_NONCEBYTES - crypto_box_MACBYTES;
 
-            // if (recv_size < crypto_box_NONCEBYTES + crypto_box_MACBYTES) {
-            //   return ReadResult{unexpected{bad_message_ec()}};
-            // }
+            if (result < 0) {
+              return ReadResult{unexpected{bad_message_ec()}};
+            }
 
             unsigned char* nonce = recv_buffer;
             unsigned char* ciphertext = recv_buffer + crypto_box_NONCEBYTES;
@@ -182,8 +192,9 @@ class PubkeyChannel {
               return ReadResult{unexpected{bad_message_ec()}};
             }
 
-            return expected<decltype(result), std::error_code>{
-              std::move(result)};
+            // return expected<decltype(result), std::error_code>{
+            //   std::move(result)};
+            return ReadResult{result};
           },
           [](disconnecting&){
             return ReadResult{unexpected{not_connected_ec()}};
