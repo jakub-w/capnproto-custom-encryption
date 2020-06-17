@@ -6,12 +6,13 @@ project('capnproto-custom-encryption', 'cpp',
 if get_option('buildtype').startswith('debug')
   add_project_arguments('-Wall', '-Wextra', '-DFORTIFY_SOURCE=1',
                         '-ggdb3',
-                        '-fsanitize=address',
+			'-Og',
+                        # '-fsanitize=address',
                         # '-fsanitize=leak',
                         # '-fsanitize=undefined',
                         language : 'cpp')
   add_project_link_arguments(
-    '-lasan',
+    # '-lasan',
     # '-ltsan',
     # '-lubsan',
     language : 'cpp')

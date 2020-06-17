@@ -10,6 +10,8 @@
 #include "../PubkeyChannel.h"
 #include "../JpakeChannel.h"
 
+#define err_info { std::string(__FILE__) + ":" + std::to_string(__LINE__) }
+
 class MockIoStream {
   MOCK_METHOD(int, write, (const void* buffer, size_t size));
   MOCK_METHOD(int, read, (void* buffer, size_t size));
@@ -23,9 +25,12 @@ class PipeIoStream {
   PipeIoStream() {
     int result = pipe(local);
     if (0 != result) {
-      throw std::system_error(result, std::system_category());
+      throw std::system_error(result, std::system_category(), err_info);
     }
     read_stream = fdopen(local[PREAD], "r");
+    if (not read_stream) {
+      std::system_error(errno, std::system_category(), err_info);
+    }
   }
 
   PipeIoStream(int fd_write) : PipeIoStream() {
@@ -38,6 +43,9 @@ class PipeIoStream {
 
   void InstallRemote(int fd_write) {
     write_stream = fdopen(fd_write, "w");
+    if (not write_stream) {
+      std::system_error(errno, std::system_category(), err_info);
+    }
   }
 
   int GetWriteFd() {
@@ -50,23 +58,57 @@ class PipeIoStream {
 
   size_t write(const void* buffer, size_t size) {
     if (nullptr == buffer) {
-      throw std::system_error(EFAULT, std::system_category());
+      throw std::system_error(EFAULT, std::system_category(), err_info);
     }
     if (not write_stream) {
-      throw std::system_error(ENOTCONN, std::system_category());
+      throw std::system_error(ENOTCONN, std::system_category(), err_info);
     }
 
     size_t result = fwrite(buffer, sizeof(char), size, write_stream);
-    fflush(write_stream);
+    if (result == 0) {
+     if (feof(write_stream)) {
+        close();
+        return 0;
+      }
+     if (ferror(write_stream)) {
+       if (errno == EPIPE) {
+         close();
+         return 0;
+       }
+        throw std::system_error(errno, std::system_category(), err_info);
+      }
+    }
+    if (fflush(write_stream) != 0) {
+      if (errno == EPIPE) {
+         close();
+         return 0;
+       }
+      throw std::system_error(errno, std::system_category(), err_info);
+    }
     return result;
   }
 
   size_t read(void* buffer, size_t size) {
     if (nullptr == buffer) {
-      throw std::system_error(EFAULT, std::system_category());
+      throw std::system_error(EFAULT, std::system_category(), err_info);
     }
 
-    return fread(buffer, sizeof(char), size, read_stream);
+    int result = fread(buffer, sizeof(char), size, read_stream);
+    if (result == 0) {
+      if (feof(read_stream)) {
+        close();
+        return 0;
+      }
+      if (ferror(read_stream)) {
+        if (errno == EPIPE) {
+          close();
+          return 0;
+        }
+        throw std::system_error(errno, std::system_category(), err_info);
+      }
+    }
+
+    return result;
   }
 
   int close() {
@@ -135,6 +177,36 @@ class FakeIoStream {
   const std::string alphabet{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"};
 };
 
+template <class IoStream>
+class JpakeChannelTestWrapper {
+  JpakeChannel<IoStream> channel;
+
+  static uint count;
+
+ public:
+  JpakeChannelTestWrapper(IoStream& stream) : channel{stream} {}
+
+  auto connect() {
+    std::error_code ec = channel.initialize("password", "id-" + count++);
+    if (ec) return ec;
+    return channel.connect();
+  }
+  auto accept() {
+    std::error_code ec = channel.initialize("password", "id-" + count++);
+    if (ec) return ec;
+    return channel.accept();
+  }
+  inline auto write(const void* buffer, size_t size) {
+    return channel.write(buffer, size);
+  }
+  inline auto read(void* buffer, size_t size) {
+    return channel.read(buffer, size);
+  }
+  inline auto close() { return channel.close(); }
+};
+template <class IoStream>
+uint JpakeChannelTestWrapper<IoStream>::count = 1;
+
 template <typename T>
 class ChannelTest : public ::testing::Test {
  protected:
@@ -159,25 +231,31 @@ class ChannelTest : public ::testing::Test {
           int timeout_msecs = 500;
 
           fds[0].fd = server_stream.GetReadFd();
-          fds[0].events = POLLIN;
+          fds[0].events = POLLIN | POLLHUP | POLLERR;
           fds[1].fd = server_stream.GetWriteFd();
-          fds[1].events = POLLOUT;
+          fds[1].events = POLLOUT | POLLHUP | POLLERR;
 
           while (run) {
             int ret = poll(fds, 2, timeout_msecs);
             if (-1 == ret) {
               if (EAGAIN == errno) continue;
-              throw std::system_error(errno, std::system_category());
+              throw std::system_error(
+                  errno, std::system_category(), err_info);
             }
 
             for (int i = 0; i < 2; ++i) {
               if (fds[i].revents & POLLOUT) {
+                std::cout << "Writing alphabet!\n";
                 server_channel.write(alphabet.c_str(), 10);
+                std::cout << "Finished writing\n";
               }
               if (fds[i].revents & POLLIN) {
                 server_channel.read(out_buf.data(), 10);
               }
               if (fds[i].revents & POLLHUP) {
+                break;
+              }
+              if (fds[i].revents & POLLERR) {
                 break;
               }
             }
@@ -215,7 +293,9 @@ using writeResult = expected<size_t, std::error_code>;
 using readResult = expected<size_t, std::error_code>;
 
 using TestTypes = ::testing::Types<InsecureChannel<PipeIoStream>,
-                                   PubkeyChannel<PipeIoStream> >;
+                                   PubkeyChannel<PipeIoStream>,
+                                   JpakeChannelTestWrapper<PipeIoStream>
+                                   >;
 // using DeathTestTypes = ::testing::Types<InsecureChannel<FakeIoStream>,
 //                                         PubkeyChannel<FakeIoStream> >;
 TYPED_TEST_SUITE(ChannelTest, TestTypes);
@@ -228,13 +308,16 @@ TYPED_TEST(ChannelTest, connect_accept) {
   // TODO: test if connecting the channel that has faulty/disconnected
   //       internal stream returns errors.
   std::error_code ec = channel.connect();
-  EXPECT_FALSE(ec);
+  ASSERT_FALSE(ec)
+      << "Connecting to the channel failed.\n"
+      "ec.message() == " << ec.message();
 
   ec = channel.connect();
   EXPECT_TRUE(ec)
       << "Calling connect() on already connected channel should return an "
       "error";
-  EXPECT_EQ(ec.value(), (int)std::errc::already_connected);
+  EXPECT_EQ(ec.value(), (int)std::errc::already_connected)
+      << "ec.message() == " << ec.message();
 }
 
 // Disabled because it's implied in the connect() test.
@@ -413,3 +496,14 @@ TYPED_TEST(ChannelTest, close) {
 //       the stream could return an error.
 //       Not handling network errors could lead to a hanging, broken
 //       connection. Probable security issue? DOS perhaps.
+
+// ! PRIORITY
+// TODO: IoStream should be required to signal errors somehow from write() and
+//       read(). We don't want to have a SIGPIPE, we want to handle the stream
+//       closing.
+// IDEA: Make Channels to assume nothing throws and create a base class for
+//       IoStreams. They will be the ones to worry about interfacing with
+//       external implementations.
+
+// TODO: Catch errors from internal_stream_ in connect() and accept() too.
+//       Make a test for checking that.

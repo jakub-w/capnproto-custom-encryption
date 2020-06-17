@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <system_error>
+#include <type_traits>
 #include <variant>
 
 #include "tl/expected.hpp"
@@ -12,6 +13,16 @@
 // This channel is vulnerable to MiTM attacks and is not very secure.
 // It's more of a reference implementation and shouldn't be used in the
 // real world.
+
+// template<class IoStream>
+// using write_returns_size_t =
+//     std::enable_if<std::is_same_v<
+//                      std::invoke_result_t<decltype(&IoStream::write),
+//                                           IoStream, void*, size_t>,
+//                      size_t>>;
+// template<class IoStream,
+//          typename Test = write_returns_size_t<IoStream>>
+
 template<class IoStream>
 class PubkeyChannel {
   // using WriteResult =

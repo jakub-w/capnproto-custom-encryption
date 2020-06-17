@@ -8,6 +8,11 @@
 
 #include "tl/expected.hpp"
 
+// TODO: Put it somewhere else.
+#if defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#define EXCEPTIONS_ENABLED
+#endif
+
 namespace {
 using tl::expected;
 using tl::unexpected;
@@ -55,6 +60,8 @@ using ReadResult = expected<size_t, std::error_code>;
 using byte = unsigned char;
 using EcPoint = std::array<byte, crypto_core_ristretto255_BYTES>;
 using EcScalar = std::array<byte, crypto_core_ristretto255_SCALARBYTES>;
+using HmacHash = std::array<byte, crypto_auth_hmacsha512_BYTES>;
+using HmacKey = std::array<byte, crypto_auth_hmacsha512_KEYBYTES>;
 
 // Asserts to ensure that libsodium isn't incompatible.
 static_assert(crypto_core_ristretto255_SCALARBYTES ==
@@ -63,6 +70,14 @@ static_assert(crypto_core_ristretto255_NONREDUCEDSCALARBYTES >=
               crypto_generichash_BYTES &&
               crypto_core_ristretto255_NONREDUCEDSCALARBYTES <=
               crypto_generichash_BYTES_MAX);
+
+struct zkp {
+  std::string user_id;
+  // V = G x [v], where v is a random number
+  EcPoint V;
+  // r = v - privkey * c, where c = H(gen || V || pubkey || user_id)
+  EcScalar r;
+};
 
 template <typename It>
 static void print_hex(It begin, It end) {
@@ -73,45 +88,6 @@ static void print_hex(It begin, It end) {
     // std::cout << *it;
   }
   std::cout << '\n';
-}
-
-static EcPoint make_generator(std::string_view password) {
-  static_assert(sizeof(decltype(password)::value_type) == sizeof(byte));
-
-  std::array<byte, crypto_core_ristretto255_NONREDUCEDSCALARBYTES> hash;
-  std::array<byte, crypto_core_ristretto255_SCALARBYTES> intermediate;
-  std::array<byte, crypto_core_ristretto255_SCALARBYTES> result;
-
-  // H(p)
-  crypto_generichash(hash.data(), hash.size(),
-                     reinterpret_cast<const byte*>(password.data()),
-                     password.length(),
-                     nullptr, 0);
-
-  // Hash the hash, repeat it until you get a valid generator.
-  for(;;) {
-    // TODO: This should be tested. Current implementation of libsodium is
-    //       fine with input and output being the same, but who knows what
-    //       will happen in the future.
-    crypto_generichash(hash.data(), hash.size(),
-                       hash.data(), hash.size(),
-                       nullptr, 0);
-
-    // mod L
-    crypto_core_ristretto255_scalar_reduce(result.data(), hash.data());
-
-    // g = H(p)^2
-    crypto_core_ristretto255_scalar_mul(intermediate.data(),
-                                        result.data(), result.data());
-
-    // P*g (P is the base point)
-    if (0 == crypto_scalarmult_ristretto255_base(result.data(),
-                                                 intermediate.data())) {
-      sodium_memzero(hash.data(), hash.size());
-      sodium_memzero(intermediate.data(), intermediate.size());
-      return result;
-    }
-  }
 }
 
 // TODO: Make it more sophisticated? Use crypto_pwhash() perhaps?
@@ -139,14 +115,6 @@ static EcScalar make_secret(std::string_view password) {
   sodium_memzero(hash.data(), hash.size());
   return result;
 }
-
-struct zkp {
-  std::string user_id;
-  // V = G x [v], where v is a random number
-  EcPoint V;
-  // r = v - privkey * c, where c = H(gen || V || pubkey || user_id)
-  EcScalar r;
-};
 
 const static EcPoint basepoint =
     []{
@@ -219,10 +187,15 @@ static struct zkp make_zkp(std::string_view user_id,
   // TODO: Check the return values of libsodium functions.
 }
 
+/// \param pubkey Public key used in generating \e zkp.
+/// \param expected_id Id of the user that made \e zkp.
+/// \param this_user_id Id of the user that checks \e zkp.
+/// \param generator Generator used to make \e zkp.
 static bool check_zkp(const struct zkp& zkp,
                       const EcPoint& pubkey,
+                      std::string_view expected_id,
                       std::string_view this_user_id,
-                      const EcPoint& generator) {
+                      const EcPoint& generator = basepoint) {
   if (not crypto_core_ristretto255_is_valid_point(pubkey.data())) {
     return false;
   }
@@ -232,11 +205,17 @@ static bool check_zkp(const struct zkp& zkp,
   if (not crypto_core_ristretto255_is_valid_point(zkp.V.data())) {
     return false;
   }
+  if (not crypto_core_ristretto255_is_valid_point(generator.data())) {
+    return false;
+  }
   if (not std::any_of(zkp.r.begin(), zkp.r.end(),
                       [](byte b){ return b != 0; })) {
     return false;
   }
   if (zkp.user_id == this_user_id) {
+    return false;
+  }
+  if (zkp.user_id != expected_id) {
     return false;
   }
 
@@ -253,10 +232,129 @@ static bool check_zkp(const struct zkp& zkp,
 
   return V == zkp.V;
 }
+
+/// Generate a tuple with private key, public key and the zero knowledge proof
+/// for them.
+static std::tuple<EcScalar, EcPoint, zkp>
+generate_keypair(std::string_view id, const EcPoint& generator = basepoint) {
+  // TODO: Check if the privkeys are not 0.
+  //       Probably done by libsodium already.
+  EcScalar privkey;
+  crypto_core_ristretto255_scalar_random(privkey.data());
+  EcPoint pubkey;
+  crypto_scalarmult_ristretto255(
+      pubkey.data(), privkey.data(), generator.data());
+  zkp zkp = make_zkp(id, privkey, pubkey, generator);
+
+  return std::make_tuple(std::move(privkey),
+                         std::move(pubkey),
+                         std::move(zkp));
+}
+
+static HmacHash make_key_confirmation(const HmacKey& key,
+                                      std::string_view peer1_id,
+                                      const EcPoint& peer1_pubkey1,
+                                      const EcPoint& peer1_pubkey2,
+                                      std::string_view peer2_id,
+                                      const EcPoint& peer2_pubkey1,
+                                      const EcPoint& peer2_pubkey2) {
+  // HMAC(key, "KC_1_U" || peer1_id || peer2_id ||
+  //      peer1_pubkey1 || peer1_pubkey2 || peer2_pubkey1 || peer2_pubkey2)
+  crypto_auth_hmacsha512_state state;
+  crypto_auth_hmacsha512_init(&state, key.data(), key.size());
+
+  crypto_auth_hmacsha512_update(
+      &state,
+      reinterpret_cast<const byte*>(peer1_id.data()),
+      peer1_id.size());
+
+  crypto_auth_hmacsha512_update(
+      &state,
+      reinterpret_cast<const byte*>(peer2_id.data()),
+      peer2_id.size());
+
+  crypto_auth_hmacsha512_update(
+      &state,
+      peer1_pubkey1.data(),
+      peer1_pubkey1.size());
+
+  crypto_auth_hmacsha512_update(
+      &state,
+      peer1_pubkey2.data(),
+      peer1_pubkey2.size());
+
+  crypto_auth_hmacsha512_update(
+      &state,
+      peer2_pubkey1.data(),
+      peer2_pubkey1.size());
+
+  crypto_auth_hmacsha512_update(
+      &state,
+      peer2_pubkey2.data(),
+      peer2_pubkey2.size());
+
+  HmacHash hash;
+  crypto_auth_hmacsha512_final(&state, hash.data());
+
+  return hash;
+}
+
+// FIXME: Make the result type safe in crypto way (i.e. zeroing out memory).
+template <size_t N>
+static std::array<byte, N> make_key_confirmation_key(
+    const EcPoint& key_material) {
+  static_assert(crypto_kdf_KEYBYTES == sizeof(decltype(key_material)));
+
+  const char context[crypto_kdf_CONTEXTBYTES] = "KC_KEY_";
+  const uint64_t subkey_id = 1;
+
+  std::array<byte, N> key;
+  // BLAKE2B(key=key_material, message={},
+  //         salt=subkey_id || {0},
+  //         personal=context || {0})
+  crypto_kdf_derive_from_key(
+      key.data(), N, subkey_id, context, key_material.data());
+
+  return key;
+}
+
+namespace {
+template<class T>
+static void derive_keys_internal(const EcPoint& key_material,
+                                 uint64_t i, T& key) {
+  const char context[crypto_kdf_CONTEXTBYTES] = "KC_KEY_";
+
+  crypto_kdf_derive_from_key(
+      key.data(), key.size(), i, context, key_material.data());
+}
+
+template<class T, class ...Ts>
+static void derive_keys_internal(const EcPoint& key_material,
+                                 uint64_t i, T& key, Ts&... rest) {
+  const char context[crypto_kdf_CONTEXTBYTES] = "JW_KGEN";
+
+  crypto_kdf_derive_from_key(
+      key.data(), key.size(), i, context, key_material.data());
+
+  if (sizeof...(rest)) {
+    derive_keys_internal(key_material, i + 1, rest...);
+  }
+}
+}
+
+template<class ...Ts>
+static void derive_keys(const EcPoint& key_material, Ts&... args) {
+  static_assert(crypto_kdf_KEYBYTES == sizeof(decltype(key_material)));
+
+  derive_keys_internal(key_material, 1, args...);
+}
+
 };
 
 // TODO: Make EcScalar and EcPoint classes with move and copy construction
 //       and assignment so we can properly zero out memory on move/copy.
+//       Probably make them movable but not copyable?
+//       Maybe make an std::array implementation.
 // TODO: Add OtherInfo to make_zkp_challenge()'s hash?
 //       Also specify the protocol so that the implementation details are
 //       listed in one place and not the code.

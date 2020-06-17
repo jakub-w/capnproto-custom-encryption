@@ -9,6 +9,8 @@ test_all = executable('test_all',
 				'EncryptedConnection-test.cpp',
 				'Channel-test.cpp',
 				'EncryptionCommon-test.cpp',
+				'SodiumCipherStream-test.cpp',
+				'../SodiumCipherStream.cpp',
 				test_capnp],
 		      include_directories: expected_dir,
 		      dependencies: [gtest_dep,
@@ -17,9 +19,10 @@ test_all = executable('test_all',
 				     libsodium_dep],
 		      cpp_args: '-Wno-unused-result')
 
-test('zkp', test_all,
+# Tests that need to be repeated to give accurate results
+test('repeat', test_all,
      args: ['--gtest_repeat=1000',
-	    '--gtest_filter=EncryptionCommon.ZKP'],
+	    '--gtest_filter=REPEAT_*'],
      # protocol: 'gtest'
     )
 
