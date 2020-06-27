@@ -48,7 +48,9 @@ class JpakeChannel {
   std::error_code write_all(const byte* buffer, size_t size) {
     size_t sent = 0;
     while (sent < size) {
-      sent += internal_stream_.write(buffer + sent, size - sent);
+      const auto result = internal_stream_.write(buffer + sent, size - sent);
+      if (not result) return result.error();
+      sent += result.value();
     }
     if (sent != size) {
       return protocol_error_ec();
@@ -80,7 +82,9 @@ class JpakeChannel {
   std::error_code read_all(byte* buffer, size_t size) {
     size_t read = 0;
     while (read < size) {
-      read += internal_stream_.read(buffer + read, size - read);
+      const auto result = internal_stream_.read(buffer + read, size - read);
+      if (not result) return result.error();
+      read += result.value();
     }
     if (read != size) {
       return protocol_error_ec();
@@ -102,6 +106,7 @@ class JpakeChannel {
       return std::make_error_code(std::errc::value_too_large);
     }
 
+    zkp.user_id.resize(size);
     ec = read_all(reinterpret_cast<byte*>(zkp.user_id.data()), size);
     if (ec) return ec;
     ec = read_all(zkp.V.data(), zkp.V.size());
@@ -262,7 +267,7 @@ class JpakeChannel {
                 zkp_gen.data(), zkp_gen.data(), peer_pubkey2.data());
             // privkey3 = privkey2 * secret_
             EcScalar privkey3;
-            crypto_core_ristretto255_scalar_add(
+            crypto_core_ristretto255_scalar_mul(
                 privkey3.data(), privkey2.data(), secret_.data());
             // pubkey3 = G2 * privkey3
             EcPoint pubkey3;
@@ -396,7 +401,7 @@ class JpakeChannel {
                 zkp_gen.data(), zkp_gen.data(), pubkey1.data());
             // privkey3 = privkey2 * secret_
             EcScalar privkey3;
-            crypto_core_ristretto255_scalar_add(
+            crypto_core_ristretto255_scalar_mul(
                 privkey3.data(), privkey2.data(), secret_.data());
             // pubkey3 = G1 * privkey3
             EcPoint pubkey3;
@@ -619,3 +624,14 @@ class JpakeChannel {
 
 // TODO: I could make a hook for after-connect and put stuff there when
 //       close() is called during connecting phase.
+
+// FIXME: There's no way for one peer to know that the other peer exited from
+//        accept/connect with an error, so it will hang indefinitely, trying
+//        to read or write to it.
+//        Before exiting write an error message to the peer?
+//        Every read should check for an error?
+//        Let's say read_all returns an error code if the access is denied.
+//        What error code should the peer return? Errors shouldn't be the same
+//        on both sides because that way the source of an error isn't known.
+//        I denied the access or the peer denied access to me?
+//        Is it time for a custom error_category?

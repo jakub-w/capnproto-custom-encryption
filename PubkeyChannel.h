@@ -63,10 +63,12 @@ class PubkeyChannel {
             connected context;
             crypto_box_keypair(context.publickey, context.secretkey);
 
-            internal_stream_.write(context.publickey,
-                                   crypto_box_PUBLICKEYBYTES);
-            internal_stream_.read(context.peer_publickey,
-                                  crypto_box_PUBLICKEYBYTES);
+            auto result = internal_stream_.write(context.publickey,
+                                                 crypto_box_PUBLICKEYBYTES);
+            if (not result) return result.error();
+            result = internal_stream_.read(context.peer_publickey,
+                                           crypto_box_PUBLICKEYBYTES);
+            if (not result) return result.error();
 
             state_ = context;
             return std::error_code{};
@@ -87,10 +89,12 @@ class PubkeyChannel {
             connected context;
             crypto_box_keypair(context.publickey, context.secretkey);
 
-            internal_stream_.read(context.peer_publickey,
-                                  crypto_box_PUBLICKEYBYTES);
-            internal_stream_.write(context.publickey,
-                                   crypto_box_PUBLICKEYBYTES);
+            auto result = internal_stream_.read(context.peer_publickey,
+                                                crypto_box_PUBLICKEYBYTES);
+            if (not result) return result.error();
+            result = internal_stream_.write(context.publickey,
+                                            crypto_box_PUBLICKEYBYTES);
+            if (not result) return result.error();
 
             state_ = context;
             return std::error_code{};
@@ -140,8 +144,10 @@ class PubkeyChannel {
 
             size_t sent = 0;
             while (sent < send_buf_size) {
-              sent += internal_stream_.write(send_buf + sent,
-                                             send_buf_size - sent);
+              auto result = internal_stream_.write(send_buf + sent,
+                                                   send_buf_size - sent);
+              if (not result) return result;
+              sent += result.value();
             }
             assert(sent == send_buf_size);
 
@@ -176,13 +182,20 @@ class PubkeyChannel {
                                            crypto_box_MACBYTES;
             unsigned char recv_buffer[recv_buffer_len];
 
-            // FIXME: loop until the buffer is filled?
-            // Received message size, without encryption headers
-            const size_t result =
-                internal_stream_.read(recv_buffer, recv_buffer_len)
-                - crypto_box_NONCEBYTES - crypto_box_MACBYTES;
+            // Fill the buffer
+            size_t bytes = 0;
+            while (bytes < recv_buffer_len) {
+              const auto result =
+                  internal_stream_.read(recv_buffer + bytes,
+                                        recv_buffer_len - bytes);
+              if (not result) return result;
+              bytes += result.value();
+            }
 
-            if (result < 0) {
+            const size_t decrypted_bytes =
+                bytes - crypto_box_NONCEBYTES - crypto_box_MACBYTES;
+
+            if (decrypted_bytes < 0) {
               return ReadResult{unexpected{bad_message_ec()}};
             }
 
@@ -201,9 +214,7 @@ class PubkeyChannel {
               return ReadResult{unexpected{bad_message_ec()}};
             }
 
-            // return expected<decltype(result), std::error_code>{
-            //   std::move(result)};
-            return ReadResult{result};
+            return ReadResult{decrypted_bytes};
           },
           [](disconnecting&){
             return ReadResult{unexpected{not_connected_ec()}};

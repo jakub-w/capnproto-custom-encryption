@@ -6,6 +6,7 @@
 
 #include <kj/async-io.h>
 
+#include "../IoStream.h"
 #include "../InsecureChannel.h"
 #include "../PubkeyChannel.h"
 #include "../JpakeChannel.h"
@@ -18,7 +19,7 @@ class MockIoStream {
   MOCK_METHOD(int, close, ());
 };
 
-class PipeIoStream {
+class PipeIoStream : public IoStream<PipeIoStream> {
   static const auto PREAD = 0;
   static const auto PWRITE = 1;
  public:
@@ -56,7 +57,7 @@ class PipeIoStream {
     return local[PREAD];
   }
 
-  size_t write(const void* buffer, size_t size) {
+  expected<size_t, std::error_code> write(const void* buffer, size_t size) {
     if (nullptr == buffer) {
       throw std::system_error(EFAULT, std::system_category(), err_info);
     }
@@ -66,29 +67,30 @@ class PipeIoStream {
 
     size_t result = fwrite(buffer, sizeof(char), size, write_stream);
     if (result == 0) {
-     if (feof(write_stream)) {
+      if (feof(write_stream)) {
         close();
-        return 0;
+        return unexpected{std::make_error_code(std::errc::connection_aborted)};
       }
-     if (ferror(write_stream)) {
-       if (errno == EPIPE) {
-         close();
-         return 0;
-       }
-        throw std::system_error(errno, std::system_category(), err_info);
+      if (ferror(write_stream)) {
+        if (errno == EPIPE) {
+          close();
+          return unexpected{std::make_error_code(std::errc::broken_pipe)};
+        }
+        close();
+        return unexpected{std::error_code(errno, std::system_category())};
       }
     }
     if (fflush(write_stream) != 0) {
+      close();
       if (errno == EPIPE) {
-         close();
-         return 0;
-       }
-      throw std::system_error(errno, std::system_category(), err_info);
+        return unexpected{std::make_error_code(std::errc::broken_pipe)};
+      }
+      return unexpected{std::error_code(errno, std::system_category())};
     }
     return result;
   }
 
-  size_t read(void* buffer, size_t size) {
+  expected<size_t, std::error_code> read(void* buffer, size_t size) {
     if (nullptr == buffer) {
       throw std::system_error(EFAULT, std::system_category(), err_info);
     }
@@ -97,14 +99,15 @@ class PipeIoStream {
     if (result == 0) {
       if (feof(read_stream)) {
         close();
-        return 0;
+        return unexpected{std::make_error_code(std::errc::connection_aborted)};
       }
       if (ferror(read_stream)) {
         if (errno == EPIPE) {
           close();
-          return 0;
+          return unexpected{std::make_error_code(std::errc::broken_pipe)};
         }
-        throw std::system_error(errno, std::system_category(), err_info);
+        close();
+        return unexpected{std::error_code(errno, std::system_category())};
       }
     }
 
@@ -187,12 +190,14 @@ class JpakeChannelTestWrapper {
   JpakeChannelTestWrapper(IoStream& stream) : channel{stream} {}
 
   auto connect() {
-    std::error_code ec = channel.initialize("password", "id-" + count++);
+    std::error_code ec = channel.initialize(
+        "password", "id-" + std::to_string(count++));
     if (ec) return ec;
     return channel.connect();
   }
   auto accept() {
-    std::error_code ec = channel.initialize("password", "id-" + count++);
+    std::error_code ec = channel.initialize(
+        "password", "id-" + std::to_string(count++));
     if (ec) return ec;
     return channel.accept();
   }
@@ -222,7 +227,12 @@ class ChannelTest : public ::testing::Test {
   void SetUp() {
     server_thread = std::thread(
         [this]{
-          server_channel.accept();
+          std::error_code ec = server_channel.accept();
+          if (ec) {
+            std::cerr << "Accept didn't succeed. Error: " << ec.message()
+                      << '\n';
+            return;
+          }
 
           std::string alphabet{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"};
           std::string out_buf{' ', 10};
@@ -239,15 +249,16 @@ class ChannelTest : public ::testing::Test {
             int ret = poll(fds, 2, timeout_msecs);
             if (-1 == ret) {
               if (EAGAIN == errno) continue;
+              perror("Error in poll");
               throw std::system_error(
                   errno, std::system_category(), err_info);
             }
 
             for (int i = 0; i < 2; ++i) {
               if (fds[i].revents & POLLOUT) {
-                std::cout << "Writing alphabet!\n";
+                // FIXME: This is writing indefinitely until the peer closes
+                //        the connection.
                 server_channel.write(alphabet.c_str(), 10);
-                std::cout << "Finished writing\n";
               }
               if (fds[i].revents & POLLIN) {
                 server_channel.read(out_buf.data(), 10);
@@ -270,8 +281,6 @@ class ChannelTest : public ::testing::Test {
       server_thread.join();
     }
   }
-
-  // FakeIoStream stream;
 
   T& channel;
 
@@ -432,7 +441,8 @@ TYPED_TEST(ChannelTest, read) {
 #endif
 
   result = channel.read(message.data(), message.size());
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.has_value())
+      << "Contains an error instead: " << result.error().message() << '\n';
   EXPECT_EQ((size_t)result.value(), message.size());
   EXPECT_EQ(message, "ABCDEFGHIJ");
 }
@@ -504,6 +514,16 @@ TYPED_TEST(ChannelTest, close) {
 // IDEA: Make Channels to assume nothing throws and create a base class for
 //       IoStreams. They will be the ones to worry about interfacing with
 //       external implementations.
+// For EncryptedConnection class to work the promises returned from writing
+// and reading should be passed through the Channel class, so the tight
+// cooperation with cap'n'proto is pretty much impossible for encrypted
+// streams that must check the length of the messages. The bufferred stream
+// should be implemented instead of AsyncIoStreamWrapper, just like in the
+// default TLS implementation (invoking the promises before returning control
+// to the Channel). Then the EncryptedConnection would have to create new
+// promises to return. OMG what a PITA.
+// But that means my IoStream class can stay and be useful. But all these
+// layers of indirection...
 
 // TODO: Catch errors from internal_stream_ in connect() and accept() too.
 //       Make a test for checking that.

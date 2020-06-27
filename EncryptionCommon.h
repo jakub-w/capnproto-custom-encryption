@@ -90,6 +90,10 @@ static void print_hex(It begin, It end) {
   std::cout << '\n';
 }
 
+static void print_hex(auto container) {
+  print_hex(std::begin(container), std::end(container));
+}
+
 // TODO: Make it more sophisticated? Use crypto_pwhash() perhaps?
 static EcScalar make_secret(std::string_view password) {
   static_assert(sizeof(decltype(password)::value_type) == sizeof(byte));

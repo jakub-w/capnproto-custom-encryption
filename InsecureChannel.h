@@ -37,14 +37,8 @@ private:
   } state = State::DISCONNECTED;
 
  public:
-  using writeResult =
-      expected<std::invoke_result_t<decltype(&IoStream::write),
-                                    IoStream, void*, size_t>,
-               std::error_code>;
-  using readResult =
-      expected<std::invoke_result_t<decltype(&IoStream::read),
-                                    IoStream, void*, size_t>,
-               std::error_code>;
+  using writeResult = expected<size_t, std::error_code>;
+  using readResult = expected<size_t, std::error_code>;
 
   InsecureChannel(IoStream& stream)
       : internal_stream_{stream} {}
@@ -86,16 +80,7 @@ private:
 
     // std::cout <<  std::this_thread::get_id() << ": "
               // << "writing " << size << " bytes\n";
-    try {
-      auto result = internal_stream_.write(buffer, size);
-      return writeResult{std::move(result)};
-    } catch (const std::system_error& e) {
-      return writeResult{
-        unexpected{e.code()}};
-    } catch (const std::exception& e) {
-      return writeResult{
-        unexpected{std::make_error_code(std::errc::io_error)}};
-    }
+      return internal_stream_.write(buffer, size);
   }
 
   inline readResult read(void* buffer, size_t size) {
@@ -110,16 +95,7 @@ private:
     }
     // std::cout << std::this_thread::get_id() << ": "
               // << "reading " << size << " bytes\n";
-    try {
-      auto result = internal_stream_.read(buffer, size);
-      return expected<decltype(result), std::error_code>{std::move(result)};
-    } catch (const std::system_error& e) {
-      return readResult{
-        unexpected{e.code()}};
-    } catch (const std::exception& e) {
-      return readResult{
-        unexpected{std::make_error_code(std::errc::io_error)}};
-    }
+      return internal_stream_.read(buffer, size);
   }
 
   // TODO: This should return something like expected<auto, std::error_code>,
