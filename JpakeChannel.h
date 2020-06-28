@@ -544,9 +544,25 @@ class JpakeChannel {
           [](connecting&){
             return WriteResult{unexpected{not_connected_ec()}};
           },
-          [](connected&){
-            // TODO
-            return WriteResult{0};
+          [this, buffer, size](connected& state){
+            const size_t ciphertext_size = size + crypto::NA_SS_ABYTES;
+            byte ciphertext[ciphertext_size];
+
+            std::error_code ec = state.enc_ctx.Encrypt(
+                static_cast<const byte*>(buffer), size,
+                ciphertext, ciphertext_size);
+            if (ec) {
+              // TODO: Log the real error code.
+              //       It can be operation_not_permitted if the encryption
+              //       context wasn't initialized, or invalid_argument if the
+              //       output array isn't long enough.
+              return WriteResult{unexpected{protocol_error_ec()}};
+            }
+
+            ec = write_all(ciphertext, ciphertext_size);
+            if (ec) return WriteResult{unexpected{ec}};
+
+            return WriteResult{size};
           },
           [](disconnecting&){
             return WriteResult{unexpected{not_connected_ec()}};
@@ -577,9 +593,33 @@ class JpakeChannel {
           [](connecting&){
             return ReadResult{unexpected{not_connected_ec()}};
           },
-          [](connected&){
-            // TODO
-            return ReadResult{0};
+          [this, buffer, size](connected& context){
+            const size_t ciphertext_size = size + crypto::NA_SS_ABYTES;
+            byte ciphertext[ciphertext_size];
+
+            std::error_code ec = read_all(ciphertext, ciphertext_size);
+            if (ec) return ReadResult{unexpected{ec}};
+
+            ec = context.dec_ctx.Decrypt(
+                ciphertext, ciphertext_size,
+                static_cast<byte*>(buffer), size);
+            if (ec) {
+              // TODO: Log the real reason of the error.
+              //       It can be operation_not_permitted if context is
+              //       uninitialized, invalid argument if input or output
+              //       are too short, bad_message if the message is invalid,
+              //       incomplete or corrupt, or connection_aborted if
+              //       the finishing message was received.
+              sodium_memzero(buffer, size);
+              if (ec.value() ==
+                  static_cast<int>(std::errc::connection_aborted)) {
+                close();
+                return ReadResult{unexpected{ec}};
+              }
+              return ReadResult{unexpected{protocol_error_ec()}};
+            }
+
+            return ReadResult{size};
           },
           [](disconnecting&){
             return ReadResult{unexpected{not_connected_ec()}};
