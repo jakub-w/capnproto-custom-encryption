@@ -7,6 +7,8 @@
 // TODO: Don't include it, include some global config file instead.
 #include "EncryptionCommon.h"
 
+// If the stream implementation is a network stream it should handle
+// endianness conversion.
 template<typename T>
 class IoStream {
  public:
