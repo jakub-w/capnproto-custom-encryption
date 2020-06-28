@@ -25,6 +25,10 @@ SodiumEncryptionContext::operator=(SodiumEncryptionContext&& other) {
   return *this;
 }
 
+SodiumEncryptionContext::~SodiumEncryptionContext() {
+  sodium_memzero(&state_, sizeof(state_));
+}
+
 std::error_code SodiumEncryptionContext::Initialize(
     const byte* key, size_t key_length,
     byte* header, size_t header_length) noexcept {
@@ -102,6 +106,10 @@ SodiumDecryptionContext::operator=(SodiumDecryptionContext&& other) {
   sodium_memzero(&other.state_, sizeof(other.state_));
 
   return *this;
+}
+
+SodiumDecryptionContext::~SodiumDecryptionContext() {
+  sodium_memzero(&state_, sizeof(state_));
 }
 
 std::error_code SodiumDecryptionContext::Initialize(

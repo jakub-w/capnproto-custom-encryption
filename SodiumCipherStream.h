@@ -44,6 +44,8 @@ class SodiumEncryptionContext final {
   SodiumEncryptionContext& operator=(SodiumEncryptionContext&&);
   SodiumEncryptionContext& operator=(const SodiumEncryptionContext&) = delete;
 
+  ~SodiumEncryptionContext();
+
   /// Initializes the context so that the \ref Encrypt() method can be called.
   ///
   /// \anchor Initialize_doc
@@ -169,6 +171,8 @@ class SodiumDecryptionContext final {
 
   SodiumDecryptionContext& operator=(SodiumDecryptionContext&&);
   SodiumDecryptionContext& operator=(const SodiumDecryptionContext&) = delete;
+
+  ~SodiumDecryptionContext();
 
   /// Initialize the context.
   /// /anchor Initialize_doc

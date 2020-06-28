@@ -150,6 +150,7 @@ class JpakeChannel {
 
   ~JpakeChannel() {
     sodium_memzero(secret_.data(), secret_.size());
+    sodium_memzero(&state_, sizeof(state_));
   }
 
   /// Returns \e std::errc::already_connected if already initialized.
@@ -284,7 +285,7 @@ class JpakeChannel {
             // Compute the session key material
             // K = (peer_pubkey3 - (peer_pubkey2 x [privkey2 * secret_]))
             //         x [privkey2]
-            const EcPoint key_material = make_key_material(
+            EcPoint key_material = make_key_material(
                 peer_pubkey3, peer_pubkey2, privkey2, secret_);
 
             // Key confirmation
@@ -345,6 +346,16 @@ class JpakeChannel {
 
             assert(state.dec_ctx.Initialized());
             assert(state.enc_ctx.Initialized());
+
+            // Zero out sensitive memory
+            sodium_memzero(privkey1.data(), privkey1.size());
+            sodium_memzero(privkey2.data(), privkey2.size());
+            sodium_memzero(privkey3.data(), privkey3.size());
+
+            sodium_memzero(key_material.data(), key_material.size());
+            sodium_memzero(kc_key.data(), kc_key.size());
+            sodium_memzero(enc_key.data(), enc_key.size());
+            sodium_memzero(dec_key.data(), dec_key.size());
 
             state_ = std::move(state);
 
@@ -451,7 +462,7 @@ class JpakeChannel {
             // Compute the session key material
             // K = (peer_pubkey3 - (peer_pubkey2 x [privkey2 * secret_]))
             //         x [privkey2]
-            const EcPoint key_material = make_key_material(
+            EcPoint key_material = make_key_material(
                 peer_pubkey3, peer_pubkey2, privkey2, secret_);
 
             // Key confirmation
@@ -510,6 +521,16 @@ class JpakeChannel {
 
             assert(state.dec_ctx.Initialized());
             assert(state.enc_ctx.Initialized());
+
+            // Zero out sensitive memory
+            sodium_memzero(privkey1.data(), privkey1.size());
+            sodium_memzero(privkey2.data(), privkey2.size());
+            sodium_memzero(privkey3.data(), privkey3.size());
+
+            sodium_memzero(key_material.data(), key_material.size());
+            sodium_memzero(kc_key.data(), kc_key.size());
+            sodium_memzero(enc_key.data(), enc_key.size());
+            sodium_memzero(dec_key.data(), dec_key.size());
 
             state_ = std::move(state);
 
