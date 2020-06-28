@@ -228,7 +228,7 @@ class ChannelTest : public ::testing::Test {
     server_thread = std::thread(
         [this]{
           std::error_code ec = server_channel.accept();
-          if (ec) {
+          if (not no_accept && ec) {
             std::cerr << "Accept didn't succeed. Error: " << ec.message()
                       << '\n';
             return;
@@ -245,6 +245,7 @@ class ChannelTest : public ::testing::Test {
           fds[1].fd = server_stream.GetWriteFd();
           fds[1].events = POLLOUT | POLLHUP | POLLERR;
 
+          bool written = false;
           while (run) {
             int ret = poll(fds, 2, timeout_msecs);
             if (-1 == ret) {
@@ -255,13 +256,22 @@ class ChannelTest : public ::testing::Test {
             }
 
             for (int i = 0; i < 2; ++i) {
-              if (fds[i].revents & POLLOUT) {
-                // FIXME: This is writing indefinitely until the peer closes
-                //        the connection.
-                server_channel.write(alphabet.c_str(), 10);
+              if ((fds[i].revents & POLLOUT) && not written) {
+                try {
+                  server_channel.write(alphabet.c_str(), 10);
+                  written = true;
+                } catch (const std::system_error& e) {
+                  if (e.code() != std::errc::not_connected)
+                    std::cerr << e.what() << '\n';
+                }
               }
               if (fds[i].revents & POLLIN) {
+                try {
                 server_channel.read(out_buf.data(), 10);
+                } catch (const std::system_error& e) {
+                  if (e.code() != std::errc::not_connected)
+                    std::cerr << e.what() << '\n';
+                }
               }
               if (fds[i].revents & POLLHUP) {
                 break;
@@ -282,6 +292,10 @@ class ChannelTest : public ::testing::Test {
     }
   }
 
+  void NoAccept() {
+    no_accept = true;
+  }
+
   T& channel;
 
  private:
@@ -292,6 +306,8 @@ class ChannelTest : public ::testing::Test {
 
   std::thread server_thread;
   std::atomic_bool run = true;
+
+  bool no_accept = false;
 };
 
 // FIXME: Fix death tests. They're disabled because of threads.
@@ -346,6 +362,7 @@ TYPED_TEST(ChannelTest, DISABLED_accept) {
 }
 
 TYPED_TEST(ChannelTest, writeBeforeConnecting) {
+  TestFixture::NoAccept();
   TypeParam& channel = TestFixture::channel;
   writeResult result;
 
@@ -400,6 +417,7 @@ TYPED_TEST(DISABLED_ChannelDeathTest, write) {
 }
 
 TYPED_TEST(ChannelTest, readBeforeConnecting) {
+  TestFixture::NoAccept();
   TypeParam& channel = TestFixture::channel;
   readResult result;
   std::string message(10, ' ');
