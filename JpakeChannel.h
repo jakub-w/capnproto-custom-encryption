@@ -655,19 +655,27 @@ class JpakeChannel {
           [](uninitialized&){ return not_connected_ec(); },
           [](initializing&){ return not_connected_ec(); },
           [](disconnected&){ return not_connected_ec(); },
-          [](connecting&){
-            // TODO
+          [this](connecting&){
+            // HACK: This should stop any writes and reads.
+            // FIXME: Don't do that. It results in a useless, non-reusable
+            //        object.
+            internal_stream_.close();
+
+            state_ = disconnected{};
             return std::error_code{};
           },
-          [](connected&){
-            // TODO
+          [this](connected&){
+            // HACK: This should stop any writes and reads.
+            // FIXME: Don't do that.
+            internal_stream_.close();
+
+            state_ = disconnected{};
             return std::error_code{};
           },
           [](disconnecting&){ return not_connected_ec(); }
         },
         state_);
-  }}
-  ;
+  }};
 
 // TODO: Lock a mutex when calling methods?
 // TODO: Returning error codes from connect() may be not enough.
@@ -696,3 +704,6 @@ class JpakeChannel {
 //        on both sides because that way the source of an error isn't known.
 //        I denied the access or the peer denied access to me?
 //        Is it time for a custom error_category?
+
+// I need a method of stopping reads and writes without closing the underlying
+// IoStream. For now close() leaves a useless object that can't be reused.
