@@ -546,7 +546,7 @@ class JpakeChannel {
   WriteResult write(const void* buffer, size_t size) {
     assert(nullptr != buffer);
 #ifdef NDEBUG
-    if (nullptr != buffer) {
+    if (nullptr == buffer) {
       return unexpected{std::make_error_code(std::errc::bad_address)};
     }
 #endif
@@ -595,7 +595,7 @@ class JpakeChannel {
   ReadResult read(void* buffer, size_t size) {
     assert(nullptr != buffer);
 #ifdef NDEBUG
-    if (nullptr != buffer) {
+    if (nullptr == buffer) {
       return unexpected{std::make_error_code(std::errc::bad_address)};
     }
 #endif

@@ -12,8 +12,8 @@
 template<typename T>
 class IoStream {
  public:
-  using writeResult = expected<size_t, std::system_error>;
-  using readResult = expected<size_t, std::system_error>;
+  using writeResult = expected<size_t, std::error_code>;
+  using readResult = expected<size_t, std::error_code>;
 
   inline expected<size_t, std::error_code>
   write(const void* buffer, size_t size) {

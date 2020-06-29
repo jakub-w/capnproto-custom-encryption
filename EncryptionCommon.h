@@ -90,7 +90,8 @@ static void print_hex(It begin, It end) {
   std::cout << '\n';
 }
 
-static void print_hex(auto container) {
+template <typename T>
+static void print_hex(T container) {
   print_hex(std::begin(container), std::end(container));
 }
 

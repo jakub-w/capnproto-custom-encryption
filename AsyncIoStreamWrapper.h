@@ -23,8 +23,22 @@ class AsyncIoStreamWrapper final : public IoStream<AsyncIoStreamWrapper> {
 
   inline readResult read(void* buffer, size_t size) {
     // return inner_->tryRead(buffer, size, size);
-    auto result = inner_->read(buffer, size, size);
+    inner_->read(buffer, size, size)
+        .then([this, buffer, size](size_t bytes){
+                std::cout << "read: ";
+                print_hex(static_cast<const kj::byte*>(buffer),
+                          static_cast<const kj::byte*>(buffer) + size);
+                if (bytes < size) {
+                  read(static_cast<kj::byte*>(buffer) + bytes,
+                       size - bytes);
+                }
+              });
     // FIXME: Evaluate the promise and return actual bytes read.
+    //        This is crucial because the promise for reading in
+    //        EncryptedConnection could return first, reporting that something
+    //        was read already when that's not the case.
+    //        eagerlyEvaluate() doesn't really work for that all the time.
+    //        Maybe pass waitScope in the constructor?
     return size;
   }
 
@@ -43,3 +57,5 @@ class AsyncIoStreamWrapper final : public IoStream<AsyncIoStreamWrapper> {
  //        });
  //  }
 };
+
+// TODO: wrap inner_->read() and inner_->write() in try-catch blocks

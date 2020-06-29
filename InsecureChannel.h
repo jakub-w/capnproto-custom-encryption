@@ -68,28 +68,28 @@ private:
   }
 
   inline writeResult write(const void* buffer, size_t size) {
-    assert(nullptr != buffer);
-#ifdef NDEBUG
-    if (nullptr != buffer) {
+    // assert(nullptr != buffer);
+// #ifdef NDEBUG
+    if (nullptr == buffer) {
       return unexpected{std::make_error_code(std::errc::bad_address)};
     }
-#endif
+// #endif
     if (State::DISCONNECTED == state) {
       return unexpected{std::make_error_code(std::errc::not_connected)};
     }
 
     // std::cout <<  std::this_thread::get_id() << ": "
               // << "writing " << size << " bytes\n";
-      return internal_stream_.write(buffer, size);
+    return internal_stream_.write(buffer, size);
   }
 
   inline readResult read(void* buffer, size_t size) {
-    assert(nullptr != buffer);
-#ifdef NDEBUG
-    if (nullptr != buffer) {
+    // assert(nullptr != buffer);
+// #ifdef NDEBUG
+    if (nullptr == buffer) {
       return unexpected{std::make_error_code(std::errc::bad_address)};
     }
-#endif
+// #endif
     if (State::DISCONNECTED == state) {
       return unexpected{std::make_error_code(std::errc::not_connected)};
     }

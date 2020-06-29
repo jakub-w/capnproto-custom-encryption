@@ -62,20 +62,30 @@ class EncryptedConnection : public kj::AsyncIoStream {
   kj::Promise<size_t> tryRead(void* buffer,
                               size_t /* minBytes */,
                               size_t maxBytes) final {
-    auto result = channel_->read(buffer, maxBytes);
-    if (result.has_value()) {
-      return std::move(result.value());
-    } else {
-      // NOTE: Look at TODO note at the bottom of the file.
-      // KJ_FAIL_ASSERT("Error while writing to encrypted channel: ",
-      //                result.error().message());
-      return size_t{0};
-    }
+    return kj::evalLater([this, buffer, maxBytes]() -> kj::Promise<size_t> {
+        auto result = channel_->read(buffer, maxBytes);
+        if (not result.has_value()) {
+          // return size_t{0};
+          KJ_FAIL_ASSERT("Error while writing to encrypted channel: ",
+                         result.error().message());
+        }
+        return std::move(result.value());
+      })
+        .then([this, buffer, maxBytes](size_t bytes) -> kj::Promise<size_t> {
+            if (bytes >= maxBytes) return bytes;
+            const size_t remaining = maxBytes - bytes;
+            return tryRead(static_cast<kj::byte*>(buffer) + bytes,
+                           remaining,
+                           remaining)
+                .then([bytes](size_t new_bytes){ return bytes + new_bytes; });
+          });
   }
+
+
 
   kj::Promise<void> write(const void* buffer, size_t size) final {
     return writeInternal(
-        kj::arrayPtr(reinterpret_cast<const kj::byte*>(buffer), size),
+        kj::arrayPtr(static_cast<const kj::byte*>(buffer), size),
         nullptr);
   }
 
@@ -112,24 +122,34 @@ class EncryptedConnection : public kj::AsyncIoStream {
       rest = rest.slice(1, rest.size());
     }
 
-    expected<kj::Promise<void>, std::error_code> result =
-        channel_->write(first.begin(), first.size());
+    // while (first.size() != 0) {
+    //   auto result = channel_->write(first.begin(), first.size());
+    //   if (not result.has_value()) {
+    //     // return kj::READY_NOW;
+    //     KJ_FAIL_ASSERT("Encrypted connection error: ",
+    //                    result.error().message());
+    //   }
+    //   if (rest.size() == 0) break;
+    //   first = rest.front();
+    //   rest = rest.slice(1, rest.size());
+    // }
+    // return kj::READY_NOW;
 
-    if (result.has_value()) {
-      return result.value().then(
-          [this, rest]() -> kj::Promise<void> {
-            if (rest.size() > 0) {
-              return writeInternal(rest[0], rest.slice(1, rest.size()));
-            } else {
+
+    return kj::evalLater([this, first]() -> kj::Promise<void> {
+        auto result = channel_->write(first.begin(), first.size());
+        if (not result.has_value()) {
+          KJ_FAIL_ASSERT("Encrypted connection error: ",
+                       result.error().message());
+        }
+        return kj::READY_NOW;
+      })
+        .then([this, rest]() -> kj::Promise<void> {
+            if (rest.size() == 0) {
               return kj::READY_NOW;
             }
+            return writeInternal(rest.front(), rest.slice(1, rest.size()));
           });
-    } else {
-      // NOTE: Look at a TODO note at the bottom of the file.
-      // KJ_FAIL_ASSERT("Encrypted connection error: ",
-      //                result.error().message());
-      return kj::READY_NOW;
-    }
   }
 
  protected:
@@ -249,6 +269,17 @@ inline EncryptedConnectionReceiver<Channel<AsyncIoStreamWrapper>>
 makeEncryptedReceiver(kj::Own<kj::ConnectionReceiver> receiver) {
   return EncryptedConnectionReceiver<Channel<AsyncIoStreamWrapper>>(
       kj::mv(receiver));
+}
+
+/// Use like this:
+/// \code{.cpp}
+/// makeEncryptedReceiver<PubkeyChannel>(kj::mv(receiver));
+/// \endcode
+template<template<class> class Channel>
+inline EncryptedNetworkAddress<Channel<AsyncIoStreamWrapper>>
+makeEncryptedNetworkAddress(kj::Own<kj::NetworkAddress> address) {
+  return EncryptedNetworkAddress<Channel<AsyncIoStreamWrapper>>(
+      kj::mv(address));
 }
 
 // TODO: EncryptedConnection should store the reason of the disconnection so
